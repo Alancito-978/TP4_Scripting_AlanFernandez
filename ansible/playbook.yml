@@ -1,0 +1,74 @@
+---
+- name: Desplegar servicio de análisis de tráfico web CURZA
+  hosts: lab_systems
+  become: true
+
+  vars:
+    proyecto_origen: "{{ playbook_dir }}/../docker"
+    proyecto_destino: /opt/curza-traffic-7167/docker
+
+  tasks:
+    - name: Actualizar caché de paquetes
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Comprobar instalación de Docker
+      ansible.builtin.command: docker --version
+      register: docker_check
+      changed_when: false
+      failed_when: false
+
+    - name: Instalar Docker si no está disponible
+      ansible.builtin.apt:
+        name: docker.io
+        state: present
+      when: docker_check.rc != 0
+
+    - name: Comprobar Docker Compose
+      ansible.builtin.command: docker compose version
+      register: compose_check
+      changed_when: false
+      failed_when: false
+
+    - name: Instalar Docker Compose si no está disponible
+      ansible.builtin.apt:
+        name: docker-compose-v2
+        state: present
+      when: compose_check.rc != 0
+
+    - name: Instalar dependencia Python para Docker
+      ansible.builtin.apt:
+        name: python3-docker
+        state: present
+
+    - name: Habilitar y arrancar Docker
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Crear directorio de despliegue
+      ansible.builtin.file:
+        path: "{{ proyecto_destino }}"
+        state: directory
+        mode: "0755"
+
+    - name: Copiar archivos del servicio
+      ansible.builtin.copy:
+        src: "{{ proyecto_origen }}/"
+        dest: "{{ proyecto_destino }}/"
+        mode: preserve
+      notify: Reiniciar Nginx
+
+    - name: Iniciar servicios con Docker Compose
+      community.docker.docker_compose_v2:
+        project_src: "{{ proyecto_destino }}"
+        state: present
+
+  handlers:
+    - name: Reiniciar Nginx
+      community.docker.docker_container:
+        name: curza-web-server
+        state: started
+        restart: true
